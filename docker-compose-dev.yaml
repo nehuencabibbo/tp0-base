@@ -24,6 +24,32 @@ services:
     - server
     volumes:
     - ./client/config.yaml:/config.yaml
+  client2:
+    container_name: client2
+    image: client:latest
+    entrypoint: /client
+    environment:
+    - CLI_ID=2
+    - LOGGING_LEVEL=DEBUG
+    networks:
+    - testing_net
+    depends_on:
+    - server
+    volumes:
+    - ./client/config.yaml:/config.yaml
+  client3:
+    container_name: client3
+    image: client:latest
+    entrypoint: /client
+    environment:
+    - CLI_ID=3
+    - LOGGING_LEVEL=DEBUG
+    networks:
+    - testing_net
+    depends_on:
+    - server
+    volumes:
+    - ./client/config.yaml:/config.yaml
 networks:
   testing_net:
     ipam:
