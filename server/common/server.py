@@ -9,6 +9,8 @@ SEPARATOR = '#'
 MESSAGE_LENGTH_BYTES = 4
 """Amount of expected fields to be in a message"""
 EXPECTED_BET_FIELDS = 6
+"""Time after which a connection is considered finished"""
+SOCKET_TIMEOUT = 1.0
 
 """Custom exception for communication protocol related issues """
 class ProtocolError(Exception):
@@ -51,7 +53,7 @@ class Server:
         self._server_socket.close()
         logging.info('action: closing_server_socket | result: success | reason: recived_sigterm')
 
-    def __handle_client_connection(self, socket):
+    def __handle_client_connection(self, sock):
         """
         Read message from a specific client socket and closes the socket
 
@@ -60,23 +62,32 @@ class Server:
         """
         # Used so no nested try catch blocks are needed
         success = False 
+        bets_recived = 0
         try:
-            bet = self.__read_bet(socket)
+            # If no messages are recived after a second passes, communication is considered
+            # finished
+            sock.settimeout(SOCKET_TIMEOUT)
+            while True:
+                bet = self.__read_bet(sock)
+                utils.store_bets([bet])
+                bets_recived += 1
+                logging.info(f"action: apuesta_almacenada | result: success | dni: {bet.document} | numero: {bet.number}")
+        except socket.timeout as e: 
             success = True
-            utils.store_bets([bet])
-            logging.info(f"action: apuesta_almacenada | result: success | dni: {bet.document} | numero: {bet.number}")
+            logging.info(f"action: finished_sending_batches | result: success | via: {e}")
         except OSError as e:
             logging.error(f"action: receive_message | result: fail | error: {e}")
         except ProtocolError as e:
             logging.error(f"action: parsing_bet | result: fail | error: {e}")
 
+
         try:
             response = "0" if success else "1"
-            self.__send_response(socket, response)
+            self.__send_response(sock, response)
         except OSError as e:
             logging.error(f"action: sending_response | result: fail | error: {e}")
         finally:
-            socket.close()
+            sock.close()
 
     def __accept_new_connection(self):
         """
