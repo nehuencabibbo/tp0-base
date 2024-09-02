@@ -33,6 +33,11 @@ func InitConfig() (*viper.Viper, error) {
 
 	// Add env variables supported
 	v.BindEnv("id")
+	// Bind Env binds the "server" key inside of viper 
+	// to the address enviroment variable, the prefix
+	// if the second argument is specified, viper looks
+	// for the env var without the prefix, if not, it looks
+	// for <prefix>_<key in all caps> 
 	v.BindEnv("server", "address")
 	v.BindEnv("loop", "period")
 	v.BindEnv("loop", "amount")

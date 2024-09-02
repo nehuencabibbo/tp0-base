@@ -1,6 +1,18 @@
 import socket
 import logging
 import signal
+from common import utils
+
+"""Separator used in the protocol"""
+SEPARATOR = '#'
+"""Amount of bytes used for describing the length of a determined bet"""
+MESSAGE_LENGTH_BYTES = 4
+"""Amount of expected fields to be in a message"""
+EXPECTED_BET_FIELDS = 6
+
+"""Custom exception for communication protocol related issues """
+class ProtocolError(Exception):
+    pass 
 
 class Server:
     def __init__(self, port, listen_backlog):
@@ -27,36 +39,44 @@ class Server:
         # TODO: Modify this program to handle signal to graceful shutdown
         # the server
         while not self._recived_sigterm:
-            client_sock = self.__accept_new_connection()
+            client_socket = self.__accept_new_connection()
             if self._recived_sigterm:
-                client_sock.close()
+                client_socket.close()
                 logging.info('action: closing_client_socket | result: in_progress | reason: recived_sigterm')
 
                 break
 
-            self.__handle_client_connection(client_sock)
+            self.__handle_client_connection(client_socket)
 
         self._server_socket.close()
         logging.info('action: closing_server_socket | result: success | reason: recived_sigterm')
 
-    def __handle_client_connection(self, client_sock):
+    def __handle_client_connection(self, socket):
         """
         Read message from a specific client socket and closes the socket
 
         If a problem arises in the communication with the client, the
         client socket will also be closed
         """
+        # Used so no nested try catch blocks are needed
+        success = False 
         try:
-            # TODO: Modify the receive to avoid short-reads
-            msg = client_sock.recv(1024).rstrip().decode('utf-8')
-            addr = client_sock.getpeername()
-            logging.info(f'action: receive_message | result: success | ip: {addr[0]} | msg: {msg}')
-            # TODO: Modify the send to avoid short-writes
-            client_sock.send("{}\n".format(msg).encode('utf-8'))
+            bet = self.__read_bet(socket)
+            success = True
+            utils.store_bets([bet])
+            logging.info(f"action: apuesta_almacenada | result: success | dni: {bet.document} | numero: {bet.number}")
         except OSError as e:
-            logging.error("action: receive_message | result: fail | error: {e}")
+            logging.error(f"action: receive_message | result: fail | error: {e}")
+        except ProtocolError as e:
+            logging.error(f"action: parsing_bet | result: fail | error: {e}")
+
+        try:
+            response = "0" if success else "1"
+            self.__send_response(socket, response)
+        except OSError as e:
+            logging.error(f"action: sending_response | result: fail | error: {e}")
         finally:
-            client_sock.close()
+            socket.close()
 
     def __accept_new_connection(self):
         """
@@ -71,3 +91,42 @@ class Server:
         c, addr = self._server_socket.accept()
         logging.info(f'action: accept_connections | result: success | ip: {addr[0]}')
         return c
+
+    @staticmethod
+    def __read_bet(socket) -> utils.Bet:
+        """
+        Reads a bet from the socket according to the described protocol.
+        Ensures no short read happen.
+        If the socket closes during the process then None is returned.
+        """
+        # It reads the first four bytes to know the length of the entire bet
+        # then it proceds to read the bet and return it 
+
+        need_to_read = int.from_bytes(utils.read_all(socket, MESSAGE_LENGTH_BYTES), byteorder='big')
+
+        message: list[str] = utils.read_all(socket, need_to_read).decode('utf-8').split(SEPARATOR)
+
+        if len(message) != EXPECTED_BET_FIELDS:
+            raise ProtocolError((
+                f"error: Missing fields, need 6, but {len(message)} were given. "
+                f"The following was read: {message}"
+                ))
+        
+        return utils.Bet(
+            message[0],
+            message[1],
+            message[2],
+            message[3],
+            message[4],
+            message[5],
+        )
+    
+    @staticmethod
+    def __send_response(socket, response: str):
+        """
+        Sends server response to the client following the described protocol.
+        Ensures no short writes happen
+        """
+        response += SEPARATOR
+        message = response.encode('utf-8')
+        socket.sendall(message)

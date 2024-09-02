@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,7 +26,7 @@ type ClientConfig struct {
 // Client Entity that encapsulates how
 type Client struct {
 	config ClientConfig
-	conn   net.Conn
+	conn net.Conn
 	recivedSigterm bool
 }
 
@@ -39,70 +40,116 @@ func NewClient(config ClientConfig) *Client {
 	return client
 }
 
-// CreateClientSocket Initializes client socket. In case of
-// failure, error is printed in stdout/stderr and exit 1
-// is returned
-func (c *Client) createClientSocket() error {
-	conn, err := net.Dial("tcp", c.config.ServerAddress)
+func getBetFromEnvVars() *Bet {
+	name := os.Getenv("NOMBRE")
+	surname := os.Getenv("APELLIDO")
+	identityCard := os.Getenv("DOCUMENTO")
+	birthDate := os.Getenv("NACIMIENTO")
+	number := os.Getenv("NUMERO")
+
+	bet := &Bet{
+		name, 
+		surname, 
+		identityCard, 
+		birthDate, 
+		number,
+	}
+
+	return bet
+}
+
+func (c *Client) createConnection() error {
+	socket, err := net.Dial("tcp", c.config.ServerAddress)
 	if err != nil {
 		log.Criticalf(
 			"action: connect | result: fail | client_id: %v | error: %v",
 			c.config.ID,
 			err,
 		)
+
+		return fmt.Errorf("error creating socket: %w", err)
 	}
-	c.conn = conn
+
+	c.conn = socket
+
 	return nil
 }
 
-// StartClientLoop Send messages to the client until some time threshold is met
-func (c *Client) StartClientLoop() {
-	// There is an autoincremental msgID to identify every message sent
-	// Messages if the message amount threshold has not been surpassed
+func (c *Client) StartClientLoop() error {
+	// https://gobyexample.com/signals
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGTERM)
-	outerloop:
-	for msgID := 1; msgID <= c.config.LoopAmount; msgID++ {
-		select {
-		case <- ch:
-			c.recivedSigterm = true
-			break outerloop
-		default: 
-			// Create the connection the server in every loop iteration. Send an
-			c.createClientSocket()
 
-			// TODO: Modify the send to avoid short-write
-			fmt.Fprintf(
-				c.conn,
-				"[CLIENT %v] Message N°%v\n",
-				c.config.ID,
-				msgID,
-			)
-			msg, err := bufio.NewReader(c.conn).ReadString('\n')
-			c.conn.Close()
-	
-			if err != nil {
-				log.Errorf("action: receive_message | result: fail | client_id: %v | error: %v",
-					c.config.ID,
-					err,
-				)
-				return
-			}
-	
-			log.Infof("action: receive_message | result: success | client_id: %v | msg: %v",
-				c.config.ID,
-				msg,
-			)
-	
-			// Wait a time between sending one message and the next one
-			if !c.recivedSigterm {time.Sleep(c.config.LoopPeriod)}
-		}
+	go func() {
+		<- ch
+		c.recivedSigterm = true
+		log.Infof("action: recieved_sigterm")
+	}()
+
+	err := c.createConnection()
+	if err != nil {
+		return fmt.Errorf("error starting the client: %w", err)
 	}
+
+	bet := getBetFromEnvVars()
+	err = c.sendBet(bet)
+	if err != nil {
+		c.conn.Close()
+		return fmt.Errorf("error: couldn't send the bet %v", err)
+	}
+
+	log.Infof("action: apuesta_enviada | result: success | dni: %v | numero: %v",
+		bet.identityCard,
+		bet.number,
+	)
+
 	if c.recivedSigterm {
-		log.Infof("action: loop_finished | result: success | client_id: %v | reason: recived_sigterm", 
-			c.config.ID,
+		c.conn.Close()
+		log.Infof("action: closing_client_socket | result: success | reason: recived_sigterm")
+		
+		return nil
+	}
+
+	msg, err := c.readServerResponse('#')
+	if err != nil {
+		return err
+	}
+
+	logServerResponse(msg)
+
+	
+	return nil
+}
+
+func (c *Client) sendBet(bet *Bet) error {
+	formatedBet := bet.FormatToSend(c.config.ID)
+	err := SendAll(formatedBet, c.conn)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c* Client) readServerResponse(separator byte) (string, error) {
+    reader := bufio.NewReader(c.conn)
+    response, err := reader.ReadString(separator)
+    if err != nil {
+        return "", err
+    }
+	
+	response = strings.TrimSuffix(response, "#")
+    return response, nil
+}
+
+func logServerResponse(msg string) {
+	if msg == "0" {
+		log.Infof("action: recived_server_confirmation | result: success | status code: %v",
+		msg,
 		)
 	} else {
-		log.Infof("action: loop_finished | result: success | client_id: %v", c.config.ID)
+		log.Infof("action: recived_server_confirmation | result: failure | status code: %v",
+		msg,
+		)
 	}
 }
