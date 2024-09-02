@@ -2,7 +2,6 @@ package common
 
 import (
 	"bufio"
-	"encoding/csv"
 	"fmt"
 	"net"
 	"os"
@@ -14,8 +13,13 @@ import (
 	"github.com/op/go-logging"
 )
 
-const BASE_FILE_NAME = "./data/agency-"
-const MAX_BATCH_BYTE_SIZE = 8000
+const (
+	ServerSeparator = '#'
+	BaseFileName = "./data/agency-"
+	MaxBatchByteSize = 8000
+	BatchStart = 0
+	FinishedTransmision = 1
+) 
 
 var log = logging.MustGetLogger("log")
 
@@ -25,7 +29,7 @@ type ClientConfig struct {
 	ServerAddress string
 	LoopAmount    int
 	LoopPeriod    time.Duration
-	maxBatchSize  int
+	MaxBatchSize  int
 }
 
 // Client Entity that encapsulates how
@@ -91,30 +95,30 @@ func (c *Client) StartClientLoop() error {
 		log.Infof("action: recieved_sigterm")
 	}()
 
+	defer c.shutdown()
+
 	err := c.createConnection()
 	if err != nil {
 		return fmt.Errorf("error starting the client: %w", err)
 	}
 
-	err = c.sendBatchOfBets()
+	file_name := fmt.Sprintf("%s%s.csv", BaseFileName, c.config.ID)
+	bets, err := getBetsFromCsv(file_name)
 	if err != nil {
-		c.conn.Close()
+		return fmt.Errorf("%w", err)
+	}
+
+	err = c.sendBatchOfBets(bets)
+	if err != nil {
 		return fmt.Errorf("error: couldn't send the bet %v", err)
 	}
 
-	if c.recivedSigterm {
-		c.conn.Close()
-		log.Infof("action: closing_client_socket | result: success | reason: recived_sigterm")
-		
-		return nil
-	}
-
-	msg, err := c.readServerResponse('#')
+	err = c.sendFinishedTransmision()
 	if err != nil {
-		return err
+		return fmt.Errorf("error: failed to send finished transmision message code: %v", err)
 	}
 
-	logServerResponse(msg)
+	log.Infof("action: finished_transmision | result: success")
 	
 	return nil
 }
@@ -129,83 +133,82 @@ func (c *Client) sendBet(bet *Bet) error {
 	return nil
 }
 
-func (c *Client) sendBatchOfBets() error {
-	file_name := fmt.Sprintf("%s%s.csv", BASE_FILE_NAME, c.config.ID)
-	file, err := os.Open(file_name)
-	if err != nil {
-		return fmt.Errorf("error opening file: %v", err)
+func (c* Client) shutdown() {
+	if c.conn != nil {
+		c.conn.Close()
+		log.Infof("action: closing_socket | result: success")
 	}
-	defer file.Close()
+}
 
-	reader := csv.NewReader(file)
-	reader.Comma = ','
+// sendBatchOfBets recives a slice of bets and sends them to the server.
+// After each batch, it awaits for the server response, if the response is
+// negative or if there's any error realting sockets, sending is completly
+// stopped and the corresponding error is returned.
+// Each batch has at most maxBatchSize bets (declared in config).
+// If the batch is bigger than 8kb with maxBatchSize 
+// then as much bets as it's possible are sent so that each batch weights
+// at maximum 8kb
+func (c *Client) sendBatchOfBets(batches []Bet) error {
+	var dataToSend []byte
+	i := 0
+	betsInCurrentBatch := 0
+	currentBatchNumber := 1
+	for { 
+		// Before appending each bet to the current batch, sigterm signal
+		// is checked for
+		if (c.recivedSigterm) { break }
 
-	line_number := 1
-	bets_in_current_batch := 0
-	var batch []byte
-	for {
-		// Each time a line is processed, check if SIGTERM was sent
-		// just breaking the loop closes the file immediately
-		if c.recivedSigterm { break }
-		line, err := reader.Read()
-		if err != nil {
-			if err.Error() == "EOF" { 
-				// If there are bets remaining, send them
-				if len(batch) != 0 {
-					err := SendAll(batch, c.conn)
-					if err != nil {
-						return fmt.Errorf("error while sending batch: %v", err)
-					}
+		formatedBet := batches[i].FormatToSend(c.config.ID)
+
+		if betsInCurrentBatch == c.config.MaxBatchSize || 
+		   len(dataToSend) + len(formatedBet) > MaxBatchByteSize {
+				log.Infof("action: sending_batch_start | result: in_progress ")
+			   	err := c.sendBatchStart(uint8(betsInCurrentBatch))
+			   	if err != nil { 
+				   	return fmt.Errorf("error: failed to send batch start header: %v", 
+				   		err,
+					)
 				}
+			log.Infof("action: sending_batch_start | result: success ")
 
-				break 
+			log.Infof("action: sending_batch_data | result: in progress")
+
+			// log.Debugf("Data being sent: %v", dataToSend)
+
+			err = SendAll(dataToSend, c.conn)
+			if err != nil { 
+				return fmt.Errorf("error: failed to send batch %v: %v", 
+					currentBatchNumber,
+					err,
+				)
 			}
 
-			return fmt.Errorf("error while reading line: %v", err)
-		}
+			log.Infof("action: sending_batch_data | result: success")
 
-		// If there's and invalid line, stop sending
-		if len(line) != 5 {
-			return fmt.Errorf("error: invalid line in csv %s in line %d", 
-				file_name, 
-				line_number,
-			)
-		}
+			betsInCurrentBatch = 0
+			
+			log.Infof("action: awaiting_server-response | result: in_progress")
 
-		bet := Bet {
-			name: line[0], 
-			surname: line[1], 
-			identityCard: line[2], 
-			birthDate: line[3], 
-			number: line[4], 
-		}
-
-		log.Infof("action: apuesta_encolada | result: success | dni: %v | numero: %v",
-			bet.identityCard,
-			bet.number,
-		)
-
-		formatedBet := bet.FormatToSend(c.config.ID)
-
-		if len(formatedBet) + len(batch) > MAX_BATCH_BYTE_SIZE || 
-			bets_in_current_batch == 10 { //TODO: Parsear del config
-			err := SendAll(batch, c.conn)
+			response, err := c.readServerResponse(ServerSeparator)
 			if err != nil {
-				return fmt.Errorf("error while sending batch: %v", err)
+				return fmt.Errorf("error: failed to send batch %v: %v", 
+					currentBatchNumber,
+					err,
+				)
 			}
-			log.Infof("action: batch_enviado | result: success | weight: %v | cantidad: %v",
-				len(batch),
-				bets_in_current_batch,
-			)
 
-			batch = batch[:0]
-			bets_in_current_batch = 0
+			fmt.Print("aca no llega ")
+
+			currentBatchNumber += 1
+			logServerResponse(response)
 		}
+		
+		dataToSend = append(dataToSend, formatedBet...)
+		
+		betsInCurrentBatch += 1
+		i += 1
 
-		batch = append(batch, formatedBet...)
-
-		bets_in_current_batch += 1
-		line_number += 1
+		time.Sleep(1 * time.Second) 
 	}
 
 	return nil
@@ -218,12 +221,12 @@ func (c* Client) readServerResponse(separator byte) (string, error) {
         return "", err
     }
 	
-	response = strings.TrimSuffix(response, "#")
+	response = strings.TrimSuffix(response, string(ServerSeparator))
     return response, nil
 }
 
 func logServerResponse(msg string) {
-	if msg == "0" {
+	if msg == "success" {
 		log.Infof("action: recived_server_confirmation | result: success | status code: %v",
 		msg,
 		)
@@ -232,4 +235,33 @@ func logServerResponse(msg string) {
 		msg,
 		)
 	}
+}
+
+// sendBatchStart sends the BatchStart message concatenated with the amount
+// of bets in the batch to read as a u8 .
+func (c *Client) sendBatchStart(betsInCurrentBatch uint8) error {
+	var data []byte
+	data = append(data, byte(BatchStart))
+	data = append(data, byte(betsInCurrentBatch))
+
+    err := SendAll(data, c.conn)
+    if err != nil {
+        return fmt.Errorf("error sending batch start message: %w", err)
+    }
+
+    return nil
+}
+
+// sendBatchStart sends the BatchStart message concatenated with the amount
+// of bets in the batch to read as a u8 .
+func (c *Client) sendFinishedTransmision() error {
+	var data []byte
+	data = append(data, byte(FinishedTransmision))
+
+    err := SendAll(data, c.conn)
+    if err != nil {
+        return fmt.Errorf("error sending batch start message: %w", err)
+    }
+
+    return nil
 }

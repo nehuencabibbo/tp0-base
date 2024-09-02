@@ -1,7 +1,9 @@
 package common
 
 import (
-	"encoding/binary"
+	"encoding/csv"
+	"fmt"
+	"os"
 )
 
 const separator = "#"
@@ -26,22 +28,48 @@ func (b *Bet) FormatToSend(agencyNumber string) []byte {
 		b.number
 	
     var data_to_send []byte
-	data_to_send = appendStringWithItsLength(message, data_to_send)
+	data_to_send = AppendStringWithItsLength(message, data_to_send)
 
     return data_to_send
 }
 
-// appendStringWithItsLength appends the length of a string as a u16 and the string 
-// itself to a byte array
-func appendStringWithItsLength(s string, data []byte) []byte {
-	length := uint32(len(s))
-	lengthBytes := make([]byte, 4)
+// getBetsFromCsv parses a csv file containing bet fields separated by ','.
+// If any line is not correctly formated, an error is returned, else
+// a slice containing Bets.
+func getBetsFromCsv(path string) ([]Bet, error) {
+    file, err := os.Open(path)
+    if err != nil {
+        return nil, fmt.Errorf("error: could not open file: %v", err)
+    }
+    defer file.Close()
 
-	binary.BigEndian.PutUint32(lengthBytes, length)
-	
-	// https://stackoverflow.com/questions/39993688/are-slices-passed-by-value
-	data = append(data, lengthBytes...)
-	data = append(data, []byte(s)...)
+    reader := csv.NewReader(file)
+	reader.Comma = ','
 
-	return data
+    records, err := reader.ReadAll()
+    if err != nil {
+        return nil, fmt.Errorf("error: could not read CSV file: %v", err)
+    }
+
+    var bets []Bet
+    for line_number, record := range records {
+        if len(record) != 5 {
+			err := fmt.Errorf("error: Line %d has an incorrect amount of arguments, need 5, was given %d",
+				line_number,
+				len(records),
+			)
+
+            return nil, err
+        }
+
+        bets = append(bets, Bet{
+            name:         record[0],
+            surname:      record[1],
+            identityCard: record[2],
+            birthDate:    record[3],
+            number:       record[4],
+        })
+    }
+
+    return bets, nil
 }

@@ -2,7 +2,12 @@ import socket
 import logging
 import signal
 from common import utils
+from typing import *
 
+"""Amount of bytes used for indicating batch length"""
+BATCH_LENGTH_BYTES = 1
+"""Amount of bytes used for protocol related messages"""
+MESSAGE_HEADER_LENGTH = 1
 """Separator used in the protocol"""
 SEPARATOR = '#'
 """Amount of bytes used for describing the length of a determined bet"""
@@ -10,7 +15,10 @@ MESSAGE_LENGTH_BYTES = 4
 """Amount of expected fields to be in a message"""
 EXPECTED_BET_FIELDS = 6
 """Time after which a connection is considered finished"""
-SOCKET_TIMEOUT = 1.0
+SOCKET_TIMEOUT = 10.0
+
+BATCH_START = 0
+FINISHED_TRANSMISION = 1
 
 """Custom exception for communication protocol related issues """
 class ProtocolError(Exception):
@@ -62,30 +70,34 @@ class Server:
         """
         # Used so no nested try catch blocks are needed
         success = False 
-        bets_recived = 0
         try:
             # If no messages are recived after a second passes, communication is considered
             # finished
-            sock.settimeout(SOCKET_TIMEOUT)
+            # sock.settimeout(SOCKET_TIMEOUT)
             while True:
-                bet = self.__read_bet(sock)
-                utils.store_bets([bet])
-                bets_recived += 1
-                logging.info(f"action: apuesta_almacenada | result: success | dni: {bet.document} | numero: {bet.number}")
+                header = self.__read_header(sock)
+                if header == BATCH_START:
+                    (bets, rejected) = self.__read_batch(sock)
+                    utils.store_bets(bets)
+                    if rejected == 0:
+                        logging.info(f"action: apuesta_recibida | result: success | cantidad: {len(bets)}")
+                        self.__send_response(sock, "success")
+                    else: 
+                        logging.info(f"action: apuesta_recibida | result: failure | cantidad: {rejected}")
+                        self.__send_response(sock, "error")
+                        # If any batch has defects, communication is terminated 
+                        break
+                elif header == FINISHED_TRANSMISION:
+                    logging.info(f"action: transmision_terminated | result: success")
+                    break
+                else:
+                    raise ProtocolError(f"error: Unkown message: {header}")
         except socket.timeout as e: 
-            success = True
-            logging.info(f"action: finished_sending_batches | result: success | via: {e}")
+            logging.info(f"action: reciving_message | result: fail | via: {e}")
         except OSError as e:
-            logging.error(f"action: receive_message | result: fail | error: {e}")
+            logging.error(f"action: reciving_message | result: fail | via: {e}")
         except ProtocolError as e:
-            logging.error(f"action: parsing_bet | result: fail | error: {e}")
-
-
-        try:
-            response = "0" if success else "1"
-            self.__send_response(sock, response)
-        except OSError as e:
-            logging.error(f"action: sending_response | result: fail | error: {e}")
+            logging.error(f"action: reciving_message | result: fail | via: {e}")
         finally:
             sock.close()
 
@@ -112,7 +124,6 @@ class Server:
         """
         # It reads the first four bytes to know the length of the entire bet
         # then it proceds to read the bet and return it 
-
         need_to_read = int.from_bytes(utils.read_all(socket, MESSAGE_LENGTH_BYTES), byteorder='big')
 
         message: list[str] = utils.read_all(socket, need_to_read).decode('utf-8').split(SEPARATOR)
@@ -123,7 +134,7 @@ class Server:
                 f"The following was read: {message}"
                 ))
         
-        return utils.Bet(
+        bet = utils.Bet(
             message[0],
             message[1],
             message[2],
@@ -131,7 +142,30 @@ class Server:
             message[4],
             message[5],
         )
+
+        return bet
+
+    @staticmethod
+    def __read_header(socket):
+        header = utils.read_all(socket, MESSAGE_HEADER_LENGTH)
+        return int.from_bytes(header, byteorder='big')
     
+    def __read_batch(self, socket) -> Tuple[list[utils.Bet], int] :
+        bets_to_read = int.from_bytes(utils.read_all(socket, BATCH_LENGTH_BYTES), byteorder='big')
+
+        bets = []
+        rejected = 0
+        while bets_to_read > 0:
+            try:
+                bet = self.__read_bet(socket)
+                bets.append(bet)
+            except ProtocolError:
+                rejected += 1
+
+            bets_to_read -= 1
+                
+        return (bets, rejected)
+
     @staticmethod
     def __send_response(socket, response: str):
         """
