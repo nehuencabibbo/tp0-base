@@ -150,66 +150,82 @@ func (c* Client) shutdown() {
 // at maximum 8kb
 func (c *Client) sendBatchOfBets(batches []Bet) error {
 	var dataToSend []byte
-	i := 0
 	betsInCurrentBatch := 0
 	currentBatchNumber := 1
-	for { 
+	for i, bet := range batches { 
 		// Before appending each bet to the current batch, sigterm signal
 		// is checked for
-		if (c.recivedSigterm) { break }
+		if (c.recivedSigterm) { 
+			log.Infof("action: recived_sigterm | during: sending_batches")
+			break 
+		}
 
-		formatedBet := batches[i].FormatToSend(c.config.ID)
+		formatedBet := bet.FormatToSend(c.config.ID)
+		
+		needToSendBatch := 
+			i == len(batches) - 1 ||
+			betsInCurrentBatch == c.config.MaxBatchSize || 
+		   	len(dataToSend) + len(formatedBet) > MaxBatchByteSize
 
-		if betsInCurrentBatch == c.config.MaxBatchSize || 
-		   len(dataToSend) + len(formatedBet) > MaxBatchByteSize {
-				log.Infof("action: sending_batch_start | result: in_progress ")
-			   	err := c.sendBatchStart(uint8(betsInCurrentBatch))
-			   	if err != nil { 
-				   	return fmt.Errorf("error: failed to send batch start header: %v", 
-				   		err,
-					)
-				}
-			log.Infof("action: sending_batch_start | result: success ")
-
-			log.Infof("action: sending_batch_data | result: in progress")
-
-			// log.Debugf("Data being sent: %v", dataToSend)
-
-			err = SendAll(dataToSend, c.conn)
-			if err != nil { 
-				return fmt.Errorf("error: failed to send batch %v: %v", 
-					currentBatchNumber,
-					err,
-				)
+		if needToSendBatch {
+			// If not, the last bet is not sent
+			if i == len(batches) - 1 {
+				dataToSend = append(dataToSend, formatedBet...)
+				betsInCurrentBatch += 1	
 			}
-
-			log.Infof("action: sending_batch_data | result: success")
-
-			betsInCurrentBatch = 0
-			
-			log.Infof("action: awaiting_server-response | result: in_progress")
-
-			response, err := c.readServerResponse(ServerSeparator)
+			err := c.sendBatch(betsInCurrentBatch, currentBatchNumber, dataToSend)
 			if err != nil {
-				return fmt.Errorf("error: failed to send batch %v: %v", 
-					currentBatchNumber,
-					err,
-				)
+				return err 
 			}
-
-			fmt.Print("aca no llega ")
-
+			
+			betsInCurrentBatch = 0
 			currentBatchNumber += 1
-			logServerResponse(response)
+			dataToSend = dataToSend[:0]
 		}
 		
-		dataToSend = append(dataToSend, formatedBet...)
-		
-		betsInCurrentBatch += 1
-		i += 1
-
-		time.Sleep(1 * time.Second) 
+		if i != len(batches) - 1 {
+			dataToSend = append(dataToSend, formatedBet...)
+			betsInCurrentBatch += 1	
+		}
 	}
+	
+	return nil
+}
+
+func (c *Client) sendBatch(betsInBatch int, batchNumber int, dataToSend []byte) error {
+	log.Infof("action: sending_batch_start | result: in_progress ")
+	err := c.sendBatchStart(uint8(betsInBatch))
+	if err != nil { 
+		return fmt.Errorf("error: failed to send batch start header: %v", 
+			err,
+		)
+	}
+	log.Infof("action: sending_batch_start | result: success ")
+
+	log.Infof("action: sending_batch_data | result: in progress")
+
+	
+	err = SendAll(dataToSend, c.conn)
+	if err != nil { 
+		return fmt.Errorf("error: failed to send batch %v: %v", 
+			batchNumber,
+			err,
+		)
+	}
+
+	log.Infof("action: sending_batch_data | result: success")
+	
+	log.Infof("action: awaiting_server-response | result: in_progress")
+	
+	response, err := c.readServerResponse(ServerSeparator)
+	if err != nil {
+		return fmt.Errorf("error: failed to send batch %v: %v", 
+			batchNumber,
+			err,
+		)
+	}
+
+	logServerResponse(response)
 
 	return nil
 }
