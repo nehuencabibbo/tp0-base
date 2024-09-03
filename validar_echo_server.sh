@@ -9,7 +9,7 @@ server_port=$(grep -i 'SERVER_PORT' "$config_file" | awk -F'=' '{print $2}' | xa
 
 message_sent="Hello echo server!"
 
-docker run -d --name validador --network tp0_testing_net validador_echo_server "$server_tag" "$server_port" "$message_sent"
+docker run -d --name validador --network tp0_testing_net validador_echo_server "$server_tag" "$server_port" "$message_sent" > /dev/null 2>&1
 
 response=$(docker logs validador)
 
@@ -19,7 +19,6 @@ else
   echo "action: test_echo_server | result: fail."
 fi
 
-echo "Cleaning up..."
 docker stop validador > /dev/null 2>&1 #Discard both stdout and err
 docker rm validador > /dev/null 2>&1
 docker rmi validador_echo_server > /dev/null 2>&1
