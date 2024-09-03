@@ -16,16 +16,27 @@ MESSAGE_LENGTH_BYTES = 4
 EXPECTED_BET_FIELDS = 6
 """Time after which a connection is considered finished"""
 SOCKET_TIMEOUT = 10.0
+"""Amount of bytes used for indicating agency number length"""
+AGENCY_LENGTH_BYTES = 1
+"""Amount of agencys that are involved in the protocol"""
+AGENCYS = 5
+"""Document bytes"""
+DOCUMENT_BYTES = 4 
+"""Amount of bytes used to send winners length"""
+WINNERS_LENGTH_BYTES = 4
 
 """Protocol Message codes"""
 
 """Client side"""
 BATCH_START = 0
 FINISHED_TRANSMISION = 1
+GET_LOTTERY_RESULTS = 2
 
 """Server side"""
 SUCCESS = 0
 ERROR = 1
+CANT_GIVE_LOTTERY_RESULTS = 2
+LOTTERY_WINNERS = 3
 
 """Custom exception for communication protocol related issues """
 class ProtocolError(Exception):
@@ -38,6 +49,9 @@ class Server:
         self._server_socket.bind(('', port))
         self._server_socket.listen(listen_backlog)
         self._recived_sigterm = False
+        self._agencys = AGENCYS
+        self._agencysRequestingWinners = set()
+        self._winners = None
 
         signal.signal(signal.SIGTERM, self.__sigterm_handler)
 
@@ -97,6 +111,21 @@ class Server:
                 elif header == FINISHED_TRANSMISION:
                     logging.info(f"action: transmision_terminated | result: success")
                     break
+                elif header == GET_LOTTERY_RESULTS:
+                    agency = self.__read_agency()
+
+                    self._agencysRequestingWinners.add(agency)
+                    logging.info((f"action: recived_lottery_winners_request | agency: {agency} | " 
+                                 f"currently_requested_winners {len(self._agencysRequestingWinners)}"))
+                    
+                    if len(self._agencysRequestingWinners) == self._agencys:
+                        logging.info(f"action: sorteo | result: success")
+                        self.__start_lottery()
+                        # Recived sigterm during the process 
+                        if self._winners == None:
+                            break
+
+                        self.__send_lottery_results(agency, sock)
                 else:
                     raise ProtocolError(f"error: Unkown message: {header}")
         except socket.timeout as e: 
@@ -107,6 +136,7 @@ class Server:
             logging.error(f"action: reciving_message | result: fail | via: {e}")
         finally:
             sock.close()
+            logging.info('action: closing_client_socket | result: in_progress | reason: recived_sigterm')
 
     def __accept_new_connection(self):
         """
@@ -190,6 +220,46 @@ class Server:
         Sends server response to the client following the described protocol.
         Ensures no short writes happen
         """
-        response = str(response) + SEPARATOR
-        message = response.encode('utf-8')
-        socket.sendall(message)
+        response_bytes = response.to_bytes(1, 'big')
+        socket.sendall(response_bytes)
+
+    @staticmethod
+    def __read_agency():
+        agency = int.from_bytes(utils.read_all(socket, AGENCY_LENGTH_BYTES), byteorder='big')
+
+        return agency
+    
+    def __start_lottery(self) -> Dict[str, str]: 
+        bets = utils.load_bets()
+
+        winners = {} #
+        for bet in bets:
+            if self._recived_sigterm:
+                return
+            
+            if utils.has_won(bet):
+                document = bet.document
+                agency = bet.agency
+
+                if not agency in winners:
+                    winners[agency] = list()
+                    winners[agency].append(document)
+                else:
+                    winners[agency].append(document)
+
+        self._winners = winners
+
+    def __send_lottery_results(self, agency: int, sock):
+        winners = self._winners[agency]
+
+        header = LOTTERY_WINNERS.to_bytes(MESSAGE_HEADER_LENGTH, 'big', signed=False)
+    
+        message = b''.join([document.to_bytes(DOCUMENT_BYTES, 'big', signed=False) for document in winners])
+
+        message_length = len(message).to_bytes(WINNERS_LENGTH_BYTES, 'big', signed=False)
+
+        sock.sendall(header + message_length + message)
+
+
+
+        

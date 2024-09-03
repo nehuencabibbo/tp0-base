@@ -1,13 +1,10 @@
 package common
 
 import (
-	"bufio"
 	"fmt"
 	"net"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -24,6 +21,7 @@ const (
 const (
 	BatchStart = 0
 	FinishedTransmision = 1
+	GetLotteryResults = 2
 ) 
 
 // Server side porotocol constants
@@ -31,6 +29,8 @@ const (
 	ServerSeparator = '#'
 	Success = 0
 	Error = 1
+	CantGiveLotteryResults = 2
+	LotteryWinners = 3
 )
 
 var log = logging.MustGetLogger("log")
@@ -113,8 +113,72 @@ func (c *Client) StartClientLoop() error {
 	}
 
 	log.Infof("action: finished_transmision | result: success")
+
+	err = c.getLotteryResults()
+	if err != nil {
+		return fmt.Errorf("error: couldn't get lottery results: %w", err)
+	}
 	
 	return nil
+}
+
+func (c *Client) getLotteryResults() ([]int, error){
+	// 1 - Mandar el mensaje de get lottery results 
+	// 2 - Esperar a que el servidor me responda
+	// 3 - Si el servidor me da los winners, parsearlos, sino volver a 1
+	for {
+		err := c.sendGetLotteryResults()
+		if err != nil {
+			return []int{}, err
+		}
+
+		message, err := c.readServerResponse()
+		if err != nil {
+			return []int{}, err 
+		}
+
+		if message == CantGiveLotteryResults {
+			time.Sleep(1 * time.Second)
+			continue
+		} else if message == LotteryWinners {
+			winners, err := c.getLotteryWinners()
+			if err != nil {
+				return winners, err
+			}
+
+			return winners, nil
+		}
+	}
+}
+
+func (c *Client) getLotteryWinners() ([]int32, error){
+	// Leer 4 bytes para saber cuanto tengo que leer 
+	// Convertirlo a entero
+	// Leer eso
+	// cada cuatro bytes ir convirtiendo el numero
+
+	needToRead, err := ReadAll(c.conn, 4)
+	if err != nil {
+		return []int{}, err 
+	}
+
+	needToRead = binary.BigEndian.Uint32(needToRead)
+	
+	winners := ReadAll(c.conn, needToRead)
+}
+
+// sendFinishedTransmision sends the FinishedTransmision message. Following the 
+// described protocol
+func (c *Client) sendGetLotteryResults() error {
+	var data []byte
+	data = append(data, byte(GetLotteryResults))
+
+    err := SendAll(data, c.conn)
+    if err != nil {
+        return fmt.Errorf("error sending get lottery results header: %w", err)
+    }
+
+    return nil
 }
 
 // shotdown Closes client resources before shuting down
@@ -207,7 +271,7 @@ func (c *Client) sendBatch(betsInBatch int, batchNumber int, dataToSend []byte) 
 	
 	log.Infof("action: awaiting_server-response | result: in_progress")
 	
-	response, err := c.readServerResponse(ServerSeparator)
+	response, err := c.readServerResponse()
 	if err != nil {
 		return fmt.Errorf("error: failed to send batch %v: %v", 
 			batchNumber,
@@ -222,20 +286,13 @@ func (c *Client) sendBatch(betsInBatch int, batchNumber int, dataToSend []byte) 
 
 // readServerResponse Reads the server response to sending a batch of bets
 // following the described protocol
-func (c* Client) readServerResponse(separator byte) (int, error) {
-    reader := bufio.NewReader(c.conn)
-    response, err := reader.ReadString(separator)
+func (c* Client) readServerResponse() (int, error) {
+	response, err := ReadAll(c.conn, 1)
     if err != nil {
         return -1, err
     }
 
-	response = strings.TrimSuffix(response, string(ServerSeparator))
-
-	intResponse, err := strconv.Atoi(response)
-	if err != nil {
-		return -1, fmt.Errorf("error converting response code to integer: %v",
-				err)	
-	}
+	intResponse := int(response[0])
 	
     return intResponse, nil
 }

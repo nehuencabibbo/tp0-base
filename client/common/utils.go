@@ -6,6 +6,22 @@ import (
 	"net"
 )
 
+// ReadAll reads the entire message from the socket avoiding short reads
+func ReadAll(socket net.Conn, length int) ([]byte, error) {
+    message := make([]byte, length)
+    totalRead := 0
+
+    for totalRead < length {
+        read, err := socket.Read(message[totalRead:])
+        if err != nil {
+            return nil, fmt.Errorf("error reading from socket: %w", err)
+        }
+        totalRead += read
+    }
+
+    return message, nil
+}
+
 // SendAll sends message thorugh socket avoiding short writes
 func SendAll(message []byte, socket net.Conn) error {
 	totalWritten := 0
