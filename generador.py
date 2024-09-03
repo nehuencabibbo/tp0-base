@@ -74,22 +74,22 @@ def generate_output(clients: int):
   return output
 
 
-def overwrite_existing_file(output_file_name) -> bool:
-  overwrite = input(f"File {output_file_name} already exists in the current working directory, do you want to overwrite it? (y/n): ").lower()
-  while overwrite != "y" and overwrite != "n":
-    overwrite = input("Enter y/n: ").lower()
+# def overwrite_existing_file(output_file_name) -> bool:
+#   overwrite = input(f"File {output_file_name} already exists in the current working directory, do you want to overwrite it? (y/n): ").lower()
+#   while overwrite != "y" and overwrite != "n":
+#     overwrite = input("Enter y/n: ").lower()
 
-  if overwrite == 'n': 
-    return False
+#   if overwrite == 'n': 
+#     return False
   
-  return True
+#   return True
 
 def main(args):
   if not validate_args(args): return
   
   output_file_name, clients = args[0], int(args[1])
-  if os.path.exists(output_file_name):
-    if not overwrite_existing_file(output_file_name): return
+  # if os.path.exists(output_file_name):
+  #   if not overwrite_existing_file(output_file_name): return
 
   output = generate_output(clients)
 
