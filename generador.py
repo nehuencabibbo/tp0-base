@@ -41,7 +41,6 @@ def add_server(services):
   services["server"]["entrypoint"] = "python3 /main.py"
   services["server"]["environment"] = ["PYTHONUNBUFFERED=1", "LOGGING_LEVEL=DEBUG"]
   services["server"]["networks"] = ["testing_net"]
-  services["server"]["volumes"] = ["./server/config.ini:/config.ini"]
 
 def add_clients(services, clients):
   for i in range(1, clients + 1):
@@ -53,7 +52,6 @@ def add_clients(services, clients):
     services[current_client]["environment"] = [f"CLI_ID={i}", "LOGGING_LEVEL=DEBUG"]
     services[current_client]["networks"] = ["testing_net"]
     services[current_client]["depends_on"] = ["server"]
-    services[current_client]["volumes"] = ["./client/config.yaml:/config.yaml"]
 
 def add_networks(networks):
   networks["testing_net"] = {}
@@ -75,23 +73,10 @@ def generate_output(clients: int):
 
   return output
 
-
-def overwrite_existing_file(output_file_name) -> bool:
-  overwrite = input(f"File {output_file_name} already exists in the current working directory, do you want to overwrite it? (y/n): ").lower()
-  while overwrite != "y" and overwrite != "n":
-    overwrite = input("Enter y/n: ").lower()
-
-  if overwrite == 'n': 
-    return False
-  
-  return True
-
 def main(args):
   if not validate_args(args): return
   
   output_file_name, clients = args[0], int(args[1])
-  if os.path.exists(output_file_name):
-    if not overwrite_existing_file(output_file_name): return
 
   output = generate_output(clients)
 
