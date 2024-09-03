@@ -39,7 +39,7 @@ def add_server(services):
   services["server"]["container_name"] = "server"
   services["server"]["image"] = "server:latest"
   services["server"]["entrypoint"] = "python3 /main.py"
-  services["server"]["environment"] = ["PYTHONUNBUFFERED=1", "LOGGING_LEVEL=DEBUG"]
+  services["server"]["environment"] = ["PYTHONUNBUFFERED=1"]
   services["server"]["networks"] = ["testing_net"]
   services["server"]["volumes"] = ["./server/config.ini:/config.ini"]
 
@@ -50,7 +50,7 @@ def add_clients(services, clients):
     services[current_client]["container_name"] = current_client
     services[current_client]["image"] = "client:latest"
     services[current_client]["entrypoint"] = "/client"
-    services[current_client]["environment"] = [f"CLI_ID={i}", "LOGGING_LEVEL=DEBUG"]
+    services[current_client]["environment"] = [f"CLI_ID={i}"]
     services[current_client]["networks"] = ["testing_net"]
     services[current_client]["depends_on"] = ["server"]
     services[current_client]["volumes"] = ["./client/config.yaml:/config.yaml"]
