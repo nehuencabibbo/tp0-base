@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -13,13 +14,24 @@ import (
 	"github.com/op/go-logging"
 )
 
+// General constants
 const (
-	ServerSeparator = '#'
 	BaseFileName = "./data/agency-"
 	MaxBatchByteSize = 8000
+)
+
+// Client side porotocol constants"""
+const (
 	BatchStart = 0
 	FinishedTransmision = 1
 ) 
+
+// Server side porotocol constants
+const (
+	ServerSeparator = '#'
+	Success = 0
+	Error = 1
+)
 
 var log = logging.MustGetLogger("log")
 
@@ -47,24 +59,6 @@ func NewClient(config ClientConfig) *Client {
 		recivedSigterm: false,
 	}
 	return client
-}
-
-func getBetFromEnvVars() *Bet {
-	name := os.Getenv("NOMBRE")
-	surname := os.Getenv("APELLIDO")
-	identityCard := os.Getenv("DOCUMENTO")
-	birthDate := os.Getenv("NACIMIENTO")
-	number := os.Getenv("NUMERO")
-
-	bet := &Bet{
-		name, 
-		surname, 
-		identityCard, 
-		birthDate, 
-		number,
-	}
-
-	return bet
 }
 
 func (c *Client) createConnection() error {
@@ -123,16 +117,7 @@ func (c *Client) StartClientLoop() error {
 	return nil
 }
 
-func (c *Client) sendBet(bet *Bet) error {
-	formatedBet := bet.FormatToSend(c.config.ID)
-	err := SendAll(formatedBet, c.conn)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
+// shotdown Closes client resources before shuting down
 func (c* Client) shutdown() {
 	if c.conn != nil {
 		c.conn.Close()
@@ -192,6 +177,8 @@ func (c *Client) sendBatchOfBets(batches []Bet) error {
 	return nil
 }
 
+// sendBatch Sends a batch according to the described protocol and logs every step during
+// the process
 func (c *Client) sendBatch(betsInBatch int, batchNumber int, dataToSend []byte) error {
 	log.Infof("action: sending_batch_start | result: in_progress ")
 	err := c.sendBatchStart(uint8(betsInBatch))
@@ -202,7 +189,9 @@ func (c *Client) sendBatch(betsInBatch int, batchNumber int, dataToSend []byte) 
 	}
 	log.Infof("action: sending_batch_start | result: success ")
 
-	log.Infof("action: sending_batch_data | result: in progress")
+	log.Infof("action: sending_batch_data | result: in progress | batch_number: %v",
+		batchNumber,
+	)
 
 	
 	err = SendAll(dataToSend, c.conn)
@@ -213,7 +202,9 @@ func (c *Client) sendBatch(betsInBatch int, batchNumber int, dataToSend []byte) 
 		)
 	}
 
-	log.Infof("action: sending_batch_data | result: success")
+	log.Infof("action: sending_batch_data | result: success | batch_number: %v",
+		batchNumber,
+	)
 	
 	log.Infof("action: awaiting_server-response | result: in_progress")
 	
@@ -230,31 +221,46 @@ func (c *Client) sendBatch(betsInBatch int, batchNumber int, dataToSend []byte) 
 	return nil
 }
 
-func (c* Client) readServerResponse(separator byte) (string, error) {
+// readServerResponse Reads the server response to sending a batch of bets
+// following the described protocol
+func (c* Client) readServerResponse(separator byte) (int, error) {
     reader := bufio.NewReader(c.conn)
     response, err := reader.ReadString(separator)
     if err != nil {
-        return "", err
+        return -1, err
     }
-	
+
 	response = strings.TrimSuffix(response, string(ServerSeparator))
-    return response, nil
+
+	intResponse, err := strconv.Atoi(response)
+	if err != nil {
+		return -1, fmt.Errorf("error converting response code to integer: %v",
+				err)	
+	}
+	
+    return intResponse, nil
 }
 
-func logServerResponse(msg string) {
-	if msg == "success" {
-		log.Infof("action: recived_server_confirmation | result: success | status code: %v",
-		msg,
+// logServerResponse logs the server response. If status code is unknown it's logged 
+// as unkown
+func logServerResponse(code int) {
+	if code == Success {
+		log.Infof("action: recived_server_confirmation | result: success | status code: %d",
+			code,
+		)
+	} else if code == Error {
+		log.Infof("action: recived_server_confirmation | result: failure | status code: %d",
+			code,
 		)
 	} else {
-		log.Infof("action: recived_server_confirmation | result: failure | status code: %v",
-		msg,
+		log.Infof("action: recived_server_confirmation | result: unkown_status_code | status code: %d",
+			code,
 		)
-	}
+	}	
 }
 
 // sendBatchStart sends the BatchStart message concatenated with the amount
-// of bets in the batch to read as a u8 .
+// of bets in the batch to read as a u8. Following the described protocol
 func (c *Client) sendBatchStart(betsInCurrentBatch uint8) error {
 	var data []byte
 	data = append(data, byte(BatchStart))
@@ -268,8 +274,8 @@ func (c *Client) sendBatchStart(betsInCurrentBatch uint8) error {
     return nil
 }
 
-// sendBatchStart sends the BatchStart message concatenated with the amount
-// of bets in the batch to read as a u8 .
+// sendFinishedTransmision sends the FinishedTransmision message. Following the 
+// described protocol
 func (c *Client) sendFinishedTransmision() error {
 	var data []byte
 	data = append(data, byte(FinishedTransmision))

@@ -17,8 +17,15 @@ EXPECTED_BET_FIELDS = 6
 """Time after which a connection is considered finished"""
 SOCKET_TIMEOUT = 10.0
 
+"""Protocol Message codes"""
+
+"""Client side"""
 BATCH_START = 0
 FINISHED_TRANSMISION = 1
+
+"""Server side"""
+SUCCESS = 0
+ERROR = 1
 
 """Custom exception for communication protocol related issues """
 class ProtocolError(Exception):
@@ -71,9 +78,9 @@ class Server:
         # Used so no nested try catch blocks are needed
         success = False 
         try:
-            # If no messages are recived after a second passes, communication is considered
+            # If no messages are recived after a SOCKET_TIMEOUT passes, communication is considered
             # finished
-            # sock.settimeout(SOCKET_TIMEOUT)
+            sock.settimeout(SOCKET_TIMEOUT)
             while True:
                 header = self.__read_header(sock)
                 if header == BATCH_START:
@@ -81,11 +88,11 @@ class Server:
                     utils.store_bets(bets)
                     if rejected == 0:
                         logging.info(f"action: apuesta_recibida | result: success | cantidad: {len(bets)}")
-                        self.__send_response(sock, "success")
+                        self.__send_response(sock, SUCCESS)
                     else: 
                         logging.info(f"action: apuesta_recibida | result: failure | cantidad: {rejected}")
-                        self.__send_response(sock, "error")
-                        # If any batch has defects, communication is terminated 
+                        self.__send_response(sock, ERROR)
+                        # If any batch has defects, communication is terminated with the client
                         break
                 elif header == FINISHED_TRANSMISION:
                     logging.info(f"action: transmision_terminated | result: success")
@@ -147,10 +154,21 @@ class Server:
 
     @staticmethod
     def __read_header(socket):
+        """
+        Reads the header according to the described protocol.
+        The header indicates the type of message that is about to be sent
+        and it occupies exactly one byte
+        """
         header = utils.read_all(socket, MESSAGE_HEADER_LENGTH)
         return int.from_bytes(header, byteorder='big')
     
-    def __read_batch(self, socket) -> Tuple[list[utils.Bet], int] :
+    def __read_batch(self, socket) -> Tuple[list[utils.Bet], int]:
+        """
+        Reads an entire batch of bets according to the described protocol.
+        If there's a problem with some of the bets, the batch is read in it's
+        entirety either way, and the amount of defective batches are returned
+        along side the correctly parsed bets
+        """
         bets_to_read = int.from_bytes(utils.read_all(socket, BATCH_LENGTH_BYTES), byteorder='big')
 
         bets = []
@@ -167,11 +185,11 @@ class Server:
         return (bets, rejected)
 
     @staticmethod
-    def __send_response(socket, response: str):
+    def __send_response(socket, response: int):
         """
         Sends server response to the client following the described protocol.
         Ensures no short writes happen
         """
-        response += SEPARATOR
+        response = str(response) + SEPARATOR
         message = response.encode('utf-8')
         socket.sendall(message)
