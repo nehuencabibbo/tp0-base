@@ -1,4 +1,4 @@
 #!/bin/bash
-
-response=$(echo "$3" | nc "$1" "$2")
+timeout=5
+response=$(echo "$3" | nc -w $timeout "$1" "$2")
 echo "$response"
