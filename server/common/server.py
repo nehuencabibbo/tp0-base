@@ -15,7 +15,7 @@ MESSAGE_LENGTH_BYTES = 4
 """Amount of expected fields to be in a message"""
 EXPECTED_BET_FIELDS = 6
 """Time after which a connection is considered finished"""
-SOCKET_TIMEOUT = 10.0
+SOCKET_TIMEOUT = 60.0
 """Amount of bytes used for indicating agency number length"""
 AGENCY_LENGTH_BYTES = 1
 """Amount of agencys that are involved in the protocol"""
@@ -97,6 +97,7 @@ class Server:
             sock.settimeout(SOCKET_TIMEOUT)
             while True:
                 header = self.__read_header(sock)
+                logging.info(f"action: reading_header | header: {header}")
                 if header == BATCH_START:
                     (bets, rejected) = self.__read_batch(sock)
                     utils.store_bets(bets)
@@ -112,7 +113,8 @@ class Server:
                     logging.info(f"action: transmision_terminated | result: success")
                     break
                 elif header == GET_LOTTERY_RESULTS:
-                    agency = self.__read_agency()
+                    agency = self.__read_agency(sock)
+                    logging.info(f"action: processing_get_lottery_results | agency: {agency}")
 
                     self._agencysRequestingWinners.add(agency)
                     logging.info((f"action: recived_lottery_winners_request | agency: {agency} | " 
@@ -126,6 +128,11 @@ class Server:
                             break
 
                         self.__send_lottery_results(agency, sock)
+                        break
+                    else:
+                        # If the lottery is not ready, disconnect the client and make it try again
+                        self.__send_cant_give_lottery_results(sock)
+                        break
                 else:
                     raise ProtocolError(f"error: Unkown message: {header}")
         except socket.timeout as e: 
@@ -136,7 +143,7 @@ class Server:
             logging.error(f"action: reciving_message | result: fail | via: {e}")
         finally:
             sock.close()
-            logging.info('action: closing_client_socket | result: in_progress | reason: recived_sigterm')
+            logging.info('action: closing_client_socket | result: in_progress | reason: conection finished')
 
     def __accept_new_connection(self):
         """
@@ -153,7 +160,7 @@ class Server:
         return c
 
     @staticmethod
-    def __read_bet(socket) -> utils.Bet:
+    def __read_bet(sock) -> utils.Bet:
         """
         Reads a bet from the socket according to the described protocol.
         Ensures no short read happen.
@@ -161,9 +168,9 @@ class Server:
         """
         # It reads the first four bytes to know the length of the entire bet
         # then it proceds to read the bet and return it 
-        need_to_read = int.from_bytes(utils.read_all(socket, MESSAGE_LENGTH_BYTES), byteorder='big')
+        need_to_read = int.from_bytes(utils.read_all(sock, MESSAGE_LENGTH_BYTES), byteorder='big')
 
-        message: list[str] = utils.read_all(socket, need_to_read).decode('utf-8').split(SEPARATOR)
+        message: list[str] = utils.read_all(sock, need_to_read).decode('utf-8').split(SEPARATOR)
 
         if len(message) != EXPECTED_BET_FIELDS:
             raise ProtocolError((
@@ -183,29 +190,29 @@ class Server:
         return bet
 
     @staticmethod
-    def __read_header(socket):
+    def __read_header(sock):
         """
         Reads the header according to the described protocol.
         The header indicates the type of message that is about to be sent
         and it occupies exactly one byte
         """
-        header = utils.read_all(socket, MESSAGE_HEADER_LENGTH)
+        header = utils.read_all(sock, MESSAGE_HEADER_LENGTH)
         return int.from_bytes(header, byteorder='big')
     
-    def __read_batch(self, socket) -> Tuple[list[utils.Bet], int]:
+    def __read_batch(self, sock) -> Tuple[list[utils.Bet], int]:
         """
         Reads an entire batch of bets according to the described protocol.
         If there's a problem with some of the bets, the batch is read in it's
         entirety either way, and the amount of defective batches are returned
         along side the correctly parsed bets
         """
-        bets_to_read = int.from_bytes(utils.read_all(socket, BATCH_LENGTH_BYTES), byteorder='big')
+        bets_to_read = int.from_bytes(utils.read_all(sock, BATCH_LENGTH_BYTES), byteorder='big')
 
         bets = []
         rejected = 0
         while bets_to_read > 0:
             try:
-                bet = self.__read_bet(socket)
+                bet = self.__read_bet(sock)
                 bets.append(bet)
             except ProtocolError:
                 rejected += 1
@@ -215,17 +222,17 @@ class Server:
         return (bets, rejected)
 
     @staticmethod
-    def __send_response(socket, response: int):
+    def __send_response(sock, response: int):
         """
         Sends server response to the client following the described protocol.
         Ensures no short writes happen
         """
         response_bytes = response.to_bytes(1, 'big')
-        socket.sendall(response_bytes)
+        sock.sendall(response_bytes)
 
     @staticmethod
-    def __read_agency():
-        agency = int.from_bytes(utils.read_all(socket, AGENCY_LENGTH_BYTES), byteorder='big')
+    def __read_agency(sock):
+        agency = int.from_bytes(utils.read_all(sock, AGENCY_LENGTH_BYTES), byteorder='big')
 
         return agency
     
@@ -250,15 +257,22 @@ class Server:
         self._winners = winners
 
     def __send_lottery_results(self, agency: int, sock):
-        winners = self._winners[agency]
+        winners = self._winners.get(agency, list())
 
         header = LOTTERY_WINNERS.to_bytes(MESSAGE_HEADER_LENGTH, 'big', signed=False)
     
-        message = b''.join([document.to_bytes(DOCUMENT_BYTES, 'big', signed=False) for document in winners])
+        message = b''.join([int(document).to_bytes(DOCUMENT_BYTES, 'big', signed=False) for document in winners])
+        # message = b''.join([document.encode('utf-8') for document in winners])
 
         message_length = len(message).to_bytes(WINNERS_LENGTH_BYTES, 'big', signed=False)
 
         sock.sendall(header + message_length + message)
+
+    @staticmethod
+    def __send_cant_give_lottery_results(sock):
+        header = CANT_GIVE_LOTTERY_RESULTS.to_bytes(MESSAGE_HEADER_LENGTH, 'big', signed=False)
+
+        sock.sendall(header)
 
 
 

@@ -1,10 +1,12 @@
 package common
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -114,28 +116,44 @@ func (c *Client) StartClientLoop() error {
 
 	log.Infof("action: finished_transmision | result: success")
 
-	err = c.getLotteryResults()
+	winners, err := c.getLotteryResults()
 	if err != nil {
 		return fmt.Errorf("error: couldn't get lottery results: %w", err)
 	}
-	
+
+	log.Infof("action: consulta_ganadores | result: success | cant_ganadores: %v",
+		len(winners),
+	)
+
 	return nil
 }
 
-func (c *Client) getLotteryResults() ([]int, error){
+func (c *Client) getLotteryResults() ([]string, error){
 	// 1 - Mandar el mensaje de get lottery results 
 	// 2 - Esperar a que el servidor me responda
 	// 3 - Si el servidor me da los winners, parsearlos, sino volver a 1
 	for {
-		err := c.sendGetLotteryResults()
+		// Server is syncronous, therefore reconections ened to happen every attempt of getting 
+		// the lottery results 
+		err := c.createConnection()
 		if err != nil {
-			return []int{}, err
+			return []string{}, err
 		}
 
+		err = c.sendGetLotteryResults()
+		if err != nil {
+			return []string{}, err
+		}
+		
+		log.Infof("action: awaiting_for_server_response | status: in_progress | reason: waiting_for_lottery_winners_confirmation")
 		message, err := c.readServerResponse()
 		if err != nil {
-			return []int{}, err 
+			return []string{}, err 
 		}
+
+		log.Infof("action: awaiting_for_server_response | status: in_progress | reason: waiting_for_lottery_winners_confirmation | code: %v",
+			message,
+		)
 
 		if message == CantGiveLotteryResults {
 			time.Sleep(1 * time.Second)
@@ -143,7 +161,7 @@ func (c *Client) getLotteryResults() ([]int, error){
 		} else if message == LotteryWinners {
 			winners, err := c.getLotteryWinners()
 			if err != nil {
-				return winners, err
+				return []string{}, err
 			}
 
 			return winners, nil
@@ -151,7 +169,7 @@ func (c *Client) getLotteryResults() ([]int, error){
 	}
 }
 
-func (c *Client) getLotteryWinners() ([]int32, error){
+func (c *Client) getLotteryWinners() ([]string, error){
 	// Leer 4 bytes para saber cuanto tengo que leer 
 	// Convertirlo a entero
 	// Leer eso
@@ -159,21 +177,40 @@ func (c *Client) getLotteryWinners() ([]int32, error){
 
 	needToRead, err := ReadAll(c.conn, 4)
 	if err != nil {
-		return []int{}, err 
+		return []string{}, err 
 	}
 
-	needToRead = binary.BigEndian.Uint32(needToRead)
-	
-	winners := ReadAll(c.conn, needToRead)
+	needToReadUInt32 := binary.BigEndian.Uint32(needToRead)
+	var winners[]string
+	for needToReadUInt32 > 0 {
+		winnerDocument, err := ReadAll(c.conn, 4)
+		if err != nil {
+			return []string{}, err 
+		}
+
+		winners = append(winners, string(winnerDocument))
+
+		needToReadUInt32 -= 4
+
+	}
+
+	return winners, nil
 }
 
-// sendFinishedTransmision sends the FinishedTransmision message. Following the 
-// described protocol
+
 func (c *Client) sendGetLotteryResults() error {
 	var data []byte
-	data = append(data, byte(GetLotteryResults))
 
-    err := SendAll(data, c.conn)
+    agencyNumberInt, err := strconv.Atoi(c.config.ID)
+    if err != nil {
+        return fmt.Errorf("invalid agency number: %w", err)
+    }
+
+    // Convert integer to byte
+    agencyNumber := byte(agencyNumberInt)
+    data = append(data, byte(GetLotteryResults))
+    data = append(data, agencyNumber)
+    err = SendAll(data, c.conn)
     if err != nil {
         return fmt.Errorf("error sending get lottery results header: %w", err)
     }
