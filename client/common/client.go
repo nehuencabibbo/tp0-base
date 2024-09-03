@@ -137,7 +137,7 @@ func (c *Client) sendBatchOfBets(batches []Bet) error {
 	var dataToSend []byte
 	betsInCurrentBatch := 0
 	currentBatchNumber := 1
-	for i, bet := range batches { 
+	for _, bet := range batches { 
 		// Before appending each bet to the current batch, sigterm signal
 		// is checked for
 		if (c.recivedSigterm) { 
@@ -147,17 +147,10 @@ func (c *Client) sendBatchOfBets(batches []Bet) error {
 
 		formatedBet := bet.FormatToSend(c.config.ID)
 		
-		needToSendBatch := 
-			i == len(batches) - 1 ||
-			betsInCurrentBatch == c.config.MaxBatchSize || 
+		needToSendBatch := betsInCurrentBatch == c.config.MaxBatchSize || 
 		   	len(dataToSend) + len(formatedBet) > MaxBatchByteSize
 
 		if needToSendBatch {
-			// If not, the last bet is not sent
-			if i == len(batches) - 1 {
-				dataToSend = append(dataToSend, formatedBet...)
-				betsInCurrentBatch += 1	
-			}
 			err := c.sendBatch(betsInCurrentBatch, currentBatchNumber, dataToSend)
 			if err != nil {
 				return err 
@@ -168,9 +161,15 @@ func (c *Client) sendBatchOfBets(batches []Bet) error {
 			dataToSend = dataToSend[:0]
 		}
 		
-		if i != len(batches) - 1 {
-			dataToSend = append(dataToSend, formatedBet...)
-			betsInCurrentBatch += 1	
+		dataToSend = append(dataToSend, formatedBet...)
+		betsInCurrentBatch += 1	
+	}
+
+	// Send the last batch 
+	if len(dataToSend) != 0 {
+		err := c.sendBatch(betsInCurrentBatch, currentBatchNumber, dataToSend)
+		if err != nil {
+			return err 
 		}
 	}
 	
