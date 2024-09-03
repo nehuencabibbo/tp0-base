@@ -1,6 +1,6 @@
 #!/bin/bash
 
-docker build ./validar_echo_server -t validador_echo_server 
+docker build ./validar_echo_server -t validador_echo_server > /dev/null 2>&1
 
 config_file="./server/config.ini"
 
