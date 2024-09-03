@@ -151,7 +151,7 @@ func (c *Client) getLotteryResults() ([]string, error){
 			return []string{}, err 
 		}
 
-		log.Infof("action: awaiting_for_server_response | status: in_progress | reason: waiting_for_lottery_winners_confirmation | code: %v",
+		log.Infof("action: awaiting_for_server_response | status: success | code: %v",
 			message,
 		)
 

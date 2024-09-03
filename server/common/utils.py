@@ -53,20 +53,3 @@ def load_bets() -> list[Bet]:
         reader = csv.reader(file, quoting=csv.QUOTE_MINIMAL)
         for row in reader:
             yield Bet(row[0], row[1], row[2], row[3], row[4], row[5])
-
-
-"""
-Ensures no short reads happen, reads till need_to_read bytes where read
-from the socket
-"""
-def read_all(socket, need_to_read) -> bytes:
-    buffer = b''
-    while need_to_read > 0:
-        read = socket.recv(need_to_read)
-        # Client socket closed
-        if len(read) == 0:
-            raise OSError("error: tried to read from a closed socket")
-        need_to_read -= len(read)
-        buffer += read
-
-    return buffer
