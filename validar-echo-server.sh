@@ -16,7 +16,7 @@ response=$(docker logs validador)
 if [ "$response" = "$message_sent" ]; then
   echo "action: test_echo_server | result: success"
 else 
-  echo "action: test_echo_server | result: fail."
+  echo "action: test_echo_server | result: fail"
 fi
 
 docker stop validador > /dev/null 2>&1 #Discard both stdout and err
