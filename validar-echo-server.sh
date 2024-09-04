@@ -11,6 +11,8 @@ message_sent="Hello echo server!"
 
 docker run -d --name validador --network tp0_testing_net validador_echo_server "$server_tag" "$server_port" "$message_sent" > /dev/null 2>&1
 
+docker wait validador 
+
 response=$(docker logs validador)
 
 if [ "$response" = "$message_sent" ]; then
