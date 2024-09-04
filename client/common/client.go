@@ -1,12 +1,10 @@
 package common
 
 import (
-	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -17,22 +15,6 @@ import (
 const (
 	BaseFileName = "./data/agency-"
 	MaxBatchByteSize = 8000
-)
-
-// Client side porotocol constants"""
-const (
-	BatchStart = 0
-	FinishedTransmision = 1
-	GetLotteryResults = 2
-) 
-
-// Server side porotocol constants
-const (
-	ServerSeparator = '#'
-	Success = 0
-	Error = 1
-	CantGiveLotteryResults = 2
-	LotteryWinners = 3
 )
 
 var log = logging.MustGetLogger("log")
@@ -51,11 +33,12 @@ type Client struct {
 	config ClientConfig
 	conn net.Conn
 	recivedSigterm bool
+	protocol Protocol 
 }
 
 // NewClient Initializes a new client receiving the configuration
 // as a parameter
-func NewClient(config ClientConfig) *Client {
+func NewClient(config ClientConfig, protocol Protocol) *Client {
 	client := &Client{
 		config: config,
 		recivedSigterm: false,
@@ -109,7 +92,7 @@ func (c *Client) StartClientLoop() error {
 		return fmt.Errorf("error: couldn't send the bet %v", err)
 	}
 
-	err = c.sendFinishedTransmision()
+	err = c.protocol.SendFinishedTransmision(c.conn)
 	if err != nil {
 		return fmt.Errorf("error: failed to send finished transmision message code: %v", err)
 	}
@@ -129,9 +112,6 @@ func (c *Client) StartClientLoop() error {
 }
 
 func (c *Client) getLotteryResults() ([]string, error){
-	// 1 - Mandar el mensaje de get lottery results 
-	// 2 - Esperar a que el servidor me responda
-	// 3 - Si el servidor me da los winners, parsearlos, sino volver a 1
 	for {
 		// Server is syncronous, therefore reconections ened to happen every attempt of getting 
 		// the lottery results 
@@ -140,13 +120,13 @@ func (c *Client) getLotteryResults() ([]string, error){
 			return []string{}, err
 		}
 
-		err = c.sendGetLotteryResults()
+		err = c.protocol.SendGetLotteryResults(c.config.ID, c.conn)
 		if err != nil {
 			return []string{}, err
 		}
 		
 		log.Infof("action: awaiting_for_server_response | status: in_progress | reason: waiting_for_lottery_winners_confirmation")
-		message, err := c.readServerResponse()
+		message, err := c.protocol.ReadMessageType(c.conn)
 		if err != nil {
 			return []string{}, err 
 		}
@@ -159,7 +139,7 @@ func (c *Client) getLotteryResults() ([]string, error){
 			time.Sleep(1 * time.Second)
 			continue
 		} else if message == LotteryWinners {
-			winners, err := c.getLotteryWinners()
+			winners, err := c.protocol.GetLotteryWinners(c.conn)
 			if err != nil {
 				return []string{}, err
 			}
@@ -169,54 +149,6 @@ func (c *Client) getLotteryResults() ([]string, error){
 	}
 }
 
-func (c *Client) getLotteryWinners() ([]string, error){
-	// Leer 4 bytes para saber cuanto tengo que leer 
-	// Convertirlo a entero
-	// Leer eso
-	// cada cuatro bytes ir convirtiendo el numero
-
-	needToRead, err := ReadAll(c.conn, 4)
-	if err != nil {
-		return []string{}, err 
-	}
-
-	needToReadUInt32 := binary.BigEndian.Uint32(needToRead)
-	var winners[]string
-	for needToReadUInt32 > 0 {
-		winnerDocument, err := ReadAll(c.conn, 4)
-		if err != nil {
-			return []string{}, err 
-		}
-
-		winners = append(winners, string(winnerDocument))
-
-		needToReadUInt32 -= 4
-
-	}
-
-	return winners, nil
-}
-
-
-func (c *Client) sendGetLotteryResults() error {
-	var data []byte
-
-    agencyNumberInt, err := strconv.Atoi(c.config.ID)
-    if err != nil {
-        return fmt.Errorf("invalid agency number: %w", err)
-    }
-
-    // Convert integer to byte
-    agencyNumber := byte(agencyNumberInt)
-    data = append(data, byte(GetLotteryResults))
-    data = append(data, agencyNumber)
-    err = SendAll(data, c.conn)
-    if err != nil {
-        return fmt.Errorf("error sending get lottery results header: %w", err)
-    }
-
-    return nil
-}
 
 // shotdown Closes client resources before shuting down
 func (c* Client) shutdown() {
@@ -246,16 +178,29 @@ func (c *Client) sendBatchOfBets(batches []Bet) error {
 			break 
 		}
 
-		formatedBet := bet.FormatToSend(c.config.ID)
+		// Pasarlo al protocolo
+		formatedBet := c.protocol.FormatBet(c.config.ID, bet)
 		
 		needToSendBatch := betsInCurrentBatch == c.config.MaxBatchSize || 
 		   	len(dataToSend) + len(formatedBet) > MaxBatchByteSize
 
 		if needToSendBatch {
-			err := c.sendBatch(betsInCurrentBatch, currentBatchNumber, dataToSend)
+			err := c.protocol.SendBatch(betsInCurrentBatch, currentBatchNumber, dataToSend, c.conn)
 			if err != nil {
 				return err 
 			}
+
+			log.Infof("action: awaiting_server-response | result: in_progress")
+	
+			response, err := c.protocol.ReadMessageType(c.conn)
+			if err != nil {
+				return fmt.Errorf("error: failed awaiting for server response for batch %v: %v", 
+					currentBatchNumber,
+					err,
+				)
+			}
+		
+			logServerResponse(response)
 			
 			betsInCurrentBatch = 0
 			currentBatchNumber += 1
@@ -268,7 +213,7 @@ func (c *Client) sendBatchOfBets(batches []Bet) error {
 
 	// Send the last batch 
 	if len(dataToSend) != 0 {
-		err := c.sendBatch(betsInCurrentBatch, currentBatchNumber, dataToSend)
+		err := c.protocol.SendBatch(betsInCurrentBatch, currentBatchNumber, dataToSend, c.conn)
 		if err != nil {
 			return err 
 		}
@@ -277,62 +222,6 @@ func (c *Client) sendBatchOfBets(batches []Bet) error {
 	return nil
 }
 
-// sendBatch Sends a batch according to the described protocol and logs every step during
-// the process
-func (c *Client) sendBatch(betsInBatch int, batchNumber int, dataToSend []byte) error {
-	log.Infof("action: sending_batch_start | result: in_progress ")
-	err := c.sendBatchStart(uint8(betsInBatch))
-	if err != nil { 
-		return fmt.Errorf("error: failed to send batch start header: %v", 
-			err,
-		)
-	}
-	log.Infof("action: sending_batch_start | result: success ")
-
-	log.Infof("action: sending_batch_data | result: in progress | batch_number: %v",
-		batchNumber,
-	)
-
-	
-	err = SendAll(dataToSend, c.conn)
-	if err != nil { 
-		return fmt.Errorf("error: failed to send batch %v: %v", 
-			batchNumber,
-			err,
-		)
-	}
-
-	log.Infof("action: sending_batch_data | result: success | batch_number: %v",
-		batchNumber,
-	)
-	
-	log.Infof("action: awaiting_server-response | result: in_progress")
-	
-	response, err := c.readServerResponse()
-	if err != nil {
-		return fmt.Errorf("error: failed to send batch %v: %v", 
-			batchNumber,
-			err,
-		)
-	}
-
-	logServerResponse(response)
-
-	return nil
-}
-
-// readServerResponse Reads the server response to sending a batch of bets
-// following the described protocol
-func (c* Client) readServerResponse() (int, error) {
-	response, err := ReadAll(c.conn, 1)
-    if err != nil {
-        return -1, err
-    }
-
-	intResponse := int(response[0])
-	
-    return intResponse, nil
-}
 
 // logServerResponse logs the server response. If status code is unknown it's logged 
 // as unkown
@@ -350,33 +239,4 @@ func logServerResponse(code int) {
 			code,
 		)
 	}	
-}
-
-// sendBatchStart sends the BatchStart message concatenated with the amount
-// of bets in the batch to read as a u8. Following the described protocol
-func (c *Client) sendBatchStart(betsInCurrentBatch uint8) error {
-	var data []byte
-	data = append(data, byte(BatchStart))
-	data = append(data, byte(betsInCurrentBatch))
-
-    err := SendAll(data, c.conn)
-    if err != nil {
-        return fmt.Errorf("error sending batch start message: %w", err)
-    }
-
-    return nil
-}
-
-// sendFinishedTransmision sends the FinishedTransmision message. Following the 
-// described protocol
-func (c *Client) sendFinishedTransmision() error {
-	var data []byte
-	data = append(data, byte(FinishedTransmision))
-
-    err := SendAll(data, c.conn)
-    if err != nil {
-        return fmt.Errorf("error sending batch start message: %w", err)
-    }
-
-    return nil
 }

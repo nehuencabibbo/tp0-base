@@ -118,7 +118,7 @@ func main() {
 		MaxBatchSize:     v.GetInt("batch.maxAmount"),
 	}
 
-	client := common.NewClient(clientConfig)
+	client := common.NewClient(clientConfig, common.Protocol{})
 	err = client.StartClientLoop()
 	if err != nil {
 		log.Criticalf("%s", err)
