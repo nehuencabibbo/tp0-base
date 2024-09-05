@@ -26,7 +26,7 @@ class Server:
         self._server_socket.listen(listen_backlog)
         self._recived_sigterm = False
         self._agencys = AGENCYS
-        self._agencysRequestingWinners = set()
+        self._agencys_that_finished_sending_batches = 0
         self._winners = None
         self._protocol = protocol
         self._has_already_started_lottery = False
@@ -95,17 +95,17 @@ class Server:
                 elif message_type == FINISHED_TRANSMISION:
                     logging.debug(f"action: transmision_terminated | result: success")
 
+                    self._agencys_that_finished_sending_batches += 1
+
                     break
 
                 elif message_type == GET_LOTTERY_RESULTS:
                     agency = message
-                    logging.debug(f"action: processing_get_lottery_results | agency: {agency}")
 
-                    self._agencysRequestingWinners.add(agency)
                     logging.debug((f"action: recived_lottery_winners_request | agency: {agency} | " 
-                                 f"currently_requested_winners {len(self._agencysRequestingWinners)}"))
+                                 f"currently_requested_winners {self._agencys_that_finished_sending_batches}"))
                     
-                    can_start_lottery = len(self._agencysRequestingWinners) == self._agencys
+                    can_start_lottery = self._agencys_that_finished_sending_batches == self._agencys
                     if can_start_lottery:
                         if not self._has_already_started_lottery:
                             self._has_already_started_lottery = True
