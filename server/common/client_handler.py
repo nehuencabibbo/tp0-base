@@ -111,9 +111,9 @@ class ClientHandler():
                                 if not self._winners_were_set.value:
                                     break
 
-                        winners_copy = {1: ["42424242"], 4: ["72727272"]}
+
+                        winners_copy = {i: [value[:] for value in self._winners[i]] for i in self._winners.keys()}
                         
-                        # hardcoded_dict = {f"{i}": i for i in range(1, 6)}
                         self._protocol.send_response(LOTTERY_WINNERS, self._sock, winners_copy, agency)
                         logging.debug(f"action: sent_lottery_winners | agency: {agency}")
 
@@ -133,7 +133,6 @@ class ClientHandler():
 
     def __start_lottery(self) -> Dict[str, str]: 
         bets = utils.load_bets()
-
         winners = {} # agency(str): winnerDocument (str)
         for bet in bets:
             if self._recived_sigterm:
@@ -149,5 +148,6 @@ class ClientHandler():
                 else:
                     winners[agency].append(document)
 
-        self._winners = winners
+        for key, value in winners.items():
+            self._winners[key] = value
         self._winners_were_set.value = True
