@@ -107,7 +107,15 @@ Modificar servidor y cliente para que ambos sistemas terminen de forma _graceful
 
 Las secciones de repaso del trabajo práctico plantean un caso de uso denominado **Lotería Nacional**. Para la resolución de las mismas deberá utilizarse como base al código fuente provisto en la primera parte, con las modificaciones agregadas en el ejercicio 4.
 
+### Protocolo
 
+#### Cliente
+
+- La Bet se manda como `<largo><campo><separador><campo><separador>...`, donde largo es un `uint32` que representa los bytes ocupados por el conjunto de <campo><separador>... que conforman la apuesta. El separador utilizado fue un #.
+
+#### Servidor 
+
+- Envia `success<separador>` si se pudo procesar la apuesta correctamente, caso contrario envia `error<separador>`. El separador utilizado fue un #
 
 ### Ejercicio N°5:
 Modificar la lógica de negocio tanto de los clientes como del servidor para nuestro nuevo caso de uso.
