@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 )
 
-const separator = "#"
+const Separator = "#"
 
 // Bet represts a bet made by a specific client
 type Bet struct {
@@ -18,11 +18,11 @@ type Bet struct {
 // FormatToSend Formats the corresponding Bet to it's representation
 // in the protocol used
 func (b *Bet) FormatToSend(agencyNumber string) []byte {
-	message := agencyNumber + separator + 
-		b.name + separator + 
-		b.surname + separator + 
-		b.identityCard + separator + 
-		b.birthDate + separator + 
+	message := agencyNumber + Separator + 
+		b.name + Separator + 
+		b.surname + Separator + 
+		b.identityCard + Separator + 
+		b.birthDate + Separator + 
 		b.number
 	
     var data_to_send []byte

@@ -13,6 +13,8 @@ import (
 	"github.com/op/go-logging"
 )
 
+const ServerSeparator = '#'
+
 var log = logging.MustGetLogger("log")
 
 // ClientConfig Configuration used by the client
@@ -110,7 +112,7 @@ func (c *Client) StartClientLoop() error {
 		return nil
 	}
 
-	msg, err := c.readServerResponse('#')
+	msg, err := c.readServerResponse(ServerSeparator)
 	if err != nil {
 		return err
 	}
@@ -138,18 +140,14 @@ func (c* Client) readServerResponse(separator byte) (string, error) {
         return "", err
     }
 	
-	response = strings.TrimSuffix(response, "#")
+	response = strings.TrimSuffix(response, string(separator))
     return response, nil
 }
 
 func logServerResponse(msg string) {
-	if msg == "0" {
-		log.Infof("action: recived_server_confirmation | result: success | status code: %v",
-		msg,
-		)
+	if msg == "success" {
+		log.Infof("action: recived_server_confirmation | result: success")
 	} else {
-		log.Infof("action: recived_server_confirmation | result: failure | status code: %v",
-		msg,
-		)
+		log.Infof("action: recived_server_confirmation | result: failure")
 	}
 }

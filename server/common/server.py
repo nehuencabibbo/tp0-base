@@ -71,7 +71,7 @@ class Server:
             logging.error(f"action: parsing_bet | result: fail | error: {e}")
 
         try:
-            response = "0" if success else "1"
+            response = "success" if success else "error"
             self.__send_response(socket, response)
         except OSError as e:
             logging.error(f"action: sending_response | result: fail | error: {e}")
