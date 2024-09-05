@@ -115,7 +115,7 @@ Cada tipo de mensaje se denota con un byte.
 
 - **BatchStart**: Indica el que se va a enviar un batch. Luego de este mensaje se envian:
     - La cantidad de `Bets` que hay en el batch como un `uint32`. 
-    - Los `Bets`. Cada bet se manda como `<largo><campo>` para cada campo de la misma, donde largo es el `largo` es un `uint16` que representa los bytes ocupados por `campo` y este último son los bytes correspondientes a la información del campo de la apuesta. Los campos se envían en orden y primero de todo se indica la agencia a la que pertenece la apuesta.
+    - Los `Bets`. Cada bet se manda como `<largo><campo><separador><campo><separador>...`, donde `largo` es un `uint16` que representa los bytes ocupados por el conjunto de `<campo><separador>...` que conforman la apuesta. El separador utilizado fue un `#`
 
 - **FinishedTransmission**: Indica que se terminaron de mandar batchs de apuestas
 
