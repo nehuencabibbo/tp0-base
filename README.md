@@ -107,7 +107,32 @@ Modificar servidor y cliente para que ambos sistemas terminen de forma _graceful
 
 Las secciones de repaso del trabajo práctico plantean un caso de uso denominado **Lotería Nacional**. Para la resolución de las mismas deberá utilizarse como base al código fuente provisto en la primera parte, con las modificaciones agregadas en el ejercicio 4.
 
+### Protocolo
 
+Cada tipo de mensaje se denota con un byte.
+
+#### Cliente 
+
+- **BatchStart**: Indica el que se va a enviar un batch. Luego de este mensaje se envian:
+    - La cantidad de `Bets` que hay en el batch como un `uint32`. 
+    - Los `Bets`. Cada bet se manda como `<largo><campo>` para cada campo de la misma, donde largo es el `largo` es un `uint16` que representa los bytes ocupados por `campo` y este último son los bytes correspondientes a la información del campo de la apuesta. Los campos se envían en orden y primero de todo se indica la agencia a la que pertenece la apuesta.
+
+- **FinishedTransmission**: Indica que se terminaron de mandar batchs de apuestas
+
+- **GetLotteryResults**: Se hace un pedido por los resultados de la agencia. Luego de este mensaje se envia:
+    - El numero de agencia como un `uin8`
+
+#### Servidor 
+
+- **Success**: Posible respuesta ante `BatchStart`. Indica que un batch se proceso de manera correcta.
+
+- **Error**: Posible respuesta ante `BatchStart`. Indica que un batch no se proceso de manera correcta.
+
+- **CantGiveLotteryResults**: Posible respuesta ante `GetLotteryResults`. Indica que no se pueden dar los resultados de la loteria.
+
+- **LotteryResults**: Posible respuesta ante `GetLotteryResults`. Indica que se van a enviar los resultados de la loteria. Luego de este mensaje se envia:
+    - La cantidad de ganadores, la cual se indica con un `uin32`.
+    - Los documentos de los ganadores. Se asume que todo documento tiene 8 digitos, se envian como `uint32`, ocupando asi cada uno 4 bytes.
 
 ### Ejercicio N°5:
 Modificar la lógica de negocio tanto de los clientes como del servidor para nuestro nuevo caso de uso.
