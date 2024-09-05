@@ -4,6 +4,7 @@ from configparser import ConfigParser
 from common.server import Server
 import logging
 import os
+from protocol.protocol import Protocol
 
 
 def initialize_config():
@@ -48,7 +49,7 @@ def main():
                   f"listen_backlog: {listen_backlog} | logging_level: {logging_level}")
 
     # Initialize server and start server loop
-    server = Server(port, listen_backlog)
+    server = Server(port, listen_backlog, Protocol())
     server.run()
 
 def initialize_log(logging_level):

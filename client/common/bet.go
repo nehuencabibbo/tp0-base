@@ -10,27 +10,11 @@ const separator = "#"
 
 // Bet represts a bet made by a specific client
 type Bet struct {
-	name string
-	surname string
-	identityCard string
-	birthDate string
-	number string
-}
-
-// FormatToSend Formats the corresponding Bet to it's representation
-// in the protocol used
-func (b *Bet) FormatToSend(agencyNumber string) []byte {
-	message := agencyNumber + separator + 
-		b.name + separator + 
-		b.surname + separator + 
-		b.identityCard + separator + 
-		b.birthDate + separator + 
-		b.number
-	
-    var data_to_send []byte
-	data_to_send = AppendStringWithItsLength(message, data_to_send)
-
-    return data_to_send
+	Name string
+	Surname string
+	IdentityCard string
+	BirthDate string
+	Number string
 }
 
 // getBetsFromCsv parses a csv file containing bet fields separated by ','.
@@ -63,11 +47,11 @@ func getBetsFromCsv(path string) ([]Bet, error) {
         }
 
         bets = append(bets, Bet{
-            name:         record[0],
-            surname:      record[1],
-            identityCard: record[2],
-            birthDate:    record[3],
-            number:       record[4],
+            Name:         record[0],
+            Surname:      record[1],
+            IdentityCard: record[2],
+            BirthDate:    record[3],
+            Number:       record[4],
         })
     }
 
