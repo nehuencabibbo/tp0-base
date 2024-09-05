@@ -107,7 +107,23 @@ Modificar servidor y cliente para que ambos sistemas terminen de forma _graceful
 
 Las secciones de repaso del trabajo práctico plantean un caso de uso denominado **Lotería Nacional**. Para la resolución de las mismas deberá utilizarse como base al código fuente provisto en la primera parte, con las modificaciones agregadas en el ejercicio 4.
 
+### Protocolo
 
+Cada tipo de mensaje se denota con un byte.
+
+#### Cliente 
+
+- **BatchStart**: Indica el que se va a enviar un batch. Luego de este mensaje se envian:
+    - La cantidad de `Bets` que hay en el batch como un `uint32`. 
+    - Los `Bets`. Cada bet se manda como `<largo><campo><separador><campo><separador>...`, donde `largo` es un `uint16` que representa los bytes ocupados por el conjunto de `<campo><separador>...` que conforman la apuesta. El separador utilizado fue un `#`
+
+- **FinishedTransmission**: Indica que se terminaron de mandar batchs de apuestas
+
+#### Servidor 
+
+- **Success**: Posible respuesta ante `BatchStart`. Indica que un batch se proceso de manera correcta.
+
+- **Error**: Posible respuesta ante `BatchStart`. Indica que un batch no se proceso de manera correcta.
 
 ### Ejercicio N°5:
 Modificar la lógica de negocio tanto de los clientes como del servidor para nuestro nuevo caso de uso.
