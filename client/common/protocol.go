@@ -52,7 +52,7 @@ func (p *Protocol) GetLotteryWinners(sock net.Conn) ([]string, error) {
 		}
 
 		winners = append(winners, string(winnerDocument))
-
+		
 		needToReadUInt32 -= DocumentBytes
 
 	}

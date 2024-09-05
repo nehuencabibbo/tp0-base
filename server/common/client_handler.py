@@ -2,6 +2,7 @@ import logging
 import os
 import signal
 import socket
+import time
 
 from protocol.protocol_error import ProtocolError
 from protocol.constants import *
@@ -74,14 +75,16 @@ class ClientHandler():
                 # When transmission is finished, agency is counter towards needed agencys to
                 # start the lottery
                 elif message_type == FINISHED_TRANSMISION:
-                    logging.debug((f"action: finished_sending_batches | agency: {agency} | " 
-                                f"currently_requested_winners {self._agencys_that_requested_winners}"))
                     
                     with self._locks["agencys_that_finished_sending_bets"]:
                         self._agencys_that_finished_sending_bets.value += 1
+
+                        logging.debug((f"action: recived_finished_sending_batches | " 
+                                    f"agencys_finished_sending_batches: {self._agencys_that_finished_sending_bets.value}"))
+                        
                         
                         # Can give out lottery results 
-                        if len(self._agencys_that_finished_sending_bets) == self._agencys:
+                        if self._agencys_that_finished_sending_bets.value == self._agencys:
                             self._can_start_lottery.set()
 
                 elif message_type == GET_LOTTERY_RESULTS:
@@ -107,9 +110,14 @@ class ClientHandler():
                                 # Sigterm was recived during the process
                                 if not self._winners_were_set.value:
                                     break
+
+                        winners_copy = {1: ["42424242"], 4: ["72727272"]}
                         
-                        self._protocol.send_response(LOTTERY_WINNERS, self._sock, self._winners.copy(), agency)
+                        # hardcoded_dict = {f"{i}": i for i in range(1, 6)}
+                        self._protocol.send_response(LOTTERY_WINNERS, self._sock, winners_copy, agency)
                         logging.debug(f"action: sent_lottery_winners | agency: {agency}")
+
+                        break
                 else:
                     logging.critical(f"Unhandled message type: {message_type}")
                     break

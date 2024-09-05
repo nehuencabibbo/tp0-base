@@ -112,41 +112,35 @@ func (c *Client) StartClientLoop() error {
 }
 
 func (c *Client) getLotteryResults() ([]string, error){
-	for {
-		// Server is syncronous, therefore reconections ened to happen every attempt of getting 
-		// the lottery results 
-		err := c.createConnection()
-		if err != nil {
-			return []string{}, err
-		}
-
-		err = c.protocol.SendGetLotteryResults(c.config.ID, c.conn)
+		err := c.protocol.SendGetLotteryResults(c.config.ID, c.conn)
 		if err != nil {
 			return []string{}, err
 		}
 		
-		log.Infof("action: awaiting_for_server_response | status: in_progress | reason: waiting_for_lottery_winners_confirmation")
+		log.Infof("action: awaiting_for_lottery_winners | status: in_progress")
 		message, err := c.protocol.ReadMessageType(c.conn)
 		if err != nil {
 			return []string{}, err 
 		}
 
-		log.Infof("action: awaiting_for_server_response | status: success | code: %v",
-			message,
-		)
-
-		if message == CantGiveLotteryResults {
-			time.Sleep(1 * time.Second)
-			continue
-		} else if message == LotteryWinners {
+		
+		if message == LotteryWinners {
 			winners, err := c.protocol.GetLotteryWinners(c.conn)
 			if err != nil {
 				return []string{}, err
 			}
-
+			
+			log.Infof("action: awaiting_for_lottery_winners | status: success | code: %v",
+				message,
+			)
 			return winners, nil
-		}
-	}
+		} 
+		
+		log.Criticalf("action: recived_lottery_winners_result | result: fail | reason: unkown message code | code: %v",
+			message,	
+		)		
+
+		return []string{}, nil
 }
 
 
@@ -217,6 +211,16 @@ func (c *Client) sendBatchOfBets(batches []Bet) error {
 		if err != nil {
 			return err 
 		}
+
+		response, err := c.protocol.ReadMessageType(c.conn)
+		if err != nil {
+			return fmt.Errorf("error: failed awaiting for server response for batch %v: %v", 
+				currentBatchNumber,
+				err,
+			)
+		}
+	
+		logServerResponse(response)
 	}
 	
 	return nil

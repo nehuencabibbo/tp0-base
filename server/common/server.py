@@ -88,9 +88,9 @@ class Server:
 
             # Prevents resources being wasted, if a process terminated and the server is still running, it should be 
             # joined asap
-            self.__clean_up_finished_processes()
+            # self.__clean_up_finished_processes()
 
-        self.__shutdown()
+        # self.__shutdown()
         
 
     def __shutdown(self):
