@@ -21,6 +21,6 @@ const (
 	DocumentBytes = 4 
 	// Bytes used for indicating the length of the 
 	// winners being sent
-	WinnersLengthBytes
+	WinnersLengthBytes = 4
 )
 
