@@ -19,8 +19,5 @@ const (
 const (
 	// Bytes that a document (fixed size) occupies
 	DocumentBytes = 4 
-	// Bytes used for indicating the length of the 
-	// winners being sent
-	WinnersLengthBytes
 )
 
