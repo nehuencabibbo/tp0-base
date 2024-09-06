@@ -21,6 +21,8 @@ const (
 	DocumentBytes = 4 
 	// Bytes used for indicating the length of the 
 	// winners being sent
-	WinnersLengthBytes
+	WinnersLengthBytes = 4
+	// Fields expected for a bet to have
+	ExpectedBetFields = 5
 )
 

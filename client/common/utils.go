@@ -2,8 +2,10 @@ package common
 
 import (
 	"encoding/binary"
+	"encoding/csv"
 	"fmt"
 	"net"
+	"strings"
 )
 
 // ReadAll reads the entire message from the socket avoiding short reads
@@ -51,4 +53,31 @@ func AppendStringWithItsLength(s string, data []byte) []byte {
 	data = append(data, []byte(s)...)
 
 	return data
+}
+
+
+func GetBet(line string) (*Bet, error) {
+    reader := csv.NewReader(strings.NewReader(line))
+    record, err := reader.Read()
+    if err != nil {
+        return nil, fmt.Errorf("error reading CSV line: %v", err)
+    }
+
+    if len(record) != ExpectedBetFields {
+        return nil, fmt.Errorf("error reading CSV line, it has %v fields, needs %v: %v",
+                len(record),
+                ExpectedBetFields,
+                err,
+            )
+    }
+
+    bet := &Bet{
+        Name:         record[0],
+        Surname:      record[1],
+        IdentityCard: record[2],
+        BirthDate:    record[3],
+        Number:       record[4],
+    }
+
+    return bet, nil
 }

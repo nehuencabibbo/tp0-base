@@ -1,6 +1,7 @@
 package common
 
 import (
+	"bufio"
 	"fmt"
 	"net"
 	"os"
@@ -82,12 +83,15 @@ func (c *Client) StartClientLoop() error {
 	}
 
 	file_name := fmt.Sprintf("%s%s.csv", BaseFileName, c.config.ID)
-	bets, err := getBetsFromCsv(file_name)
+	file, err := os.Open(file_name)
 	if err != nil {
-		return fmt.Errorf("%w", err)
-	}
+        return err 
+    }
+	defer file.Close()
 
-	err = c.sendBatchOfBets(bets)
+	scanner := bufio.NewScanner(file)
+
+	err = c.sendBatchOfBets(scanner)
 	if err != nil {
 		return fmt.Errorf("error: couldn't send the bet %v", err)
 	}
@@ -160,11 +164,11 @@ func (c* Client) shutdown() {
 // If the batch is bigger than 8kb with maxBatchSize 
 // then as much bets as it's possible are sent so that each batch weights
 // at maximum 8kb
-func (c *Client) sendBatchOfBets(batches []Bet) error {
+func (c *Client) sendBatchOfBets(scanner *bufio.Scanner) error {
 	var dataToSend []byte
 	betsInCurrentBatch := 0
 	currentBatchNumber := 1
-	for _, bet := range batches { 
+	for scanner.Scan() { 
 		// Before appending each bet to the current batch, sigterm signal
 		// is checked for
 		if (c.recivedSigterm) { 
@@ -172,8 +176,12 @@ func (c *Client) sendBatchOfBets(batches []Bet) error {
 			break 
 		}
 
-		// Pasarlo al protocolo
-		formatedBet := c.protocol.FormatBet(c.config.ID, bet)
+		bet, err := GetBet(scanner.Text())
+		if err != nil {
+			return err
+		}
+
+		formatedBet := c.protocol.FormatBet(c.config.ID, *bet)
 		
 		needToSendBatch := betsInCurrentBatch == c.config.MaxBatchSize || 
 		   	len(dataToSend) + len(formatedBet) > MaxBatchByteSize
