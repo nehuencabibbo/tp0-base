@@ -3,7 +3,7 @@ package common
 import (
 	"encoding/csv"
 	"fmt"
-	"os"
+	"strings"
 )
 
 const separator = "#"
@@ -17,43 +17,30 @@ type Bet struct {
 	Number string
 }
 
-// getBetsFromCsv parses a csv file containing bet fields separated by ','.
-// If any line is not correctly formated, an error is returned, else
-// a slice containing Bets.
-func getBetsFromCsv(path string) ([]Bet, error) {
-    file, err := os.Open(path)
+// Recives a string that represents a bet with it's fields encoded as a csv 
+// separated by ,. Returns the corresponding Bet if possible
+func GetBet(line string) (*Bet, error) {
+    reader := csv.NewReader(strings.NewReader(line))
+    record, err := reader.Read()
     if err != nil {
-        return nil, fmt.Errorf("error: could not open file: %v", err)
-    }
-    defer file.Close()
-
-    reader := csv.NewReader(file)
-	reader.Comma = ','
-
-    records, err := reader.ReadAll()
-    if err != nil {
-        return nil, fmt.Errorf("error: could not read CSV file: %v", err)
+        return nil, fmt.Errorf("error reading CSV line: %v", err)
     }
 
-    var bets []Bet
-    for line_number, record := range records {
-        if len(record) != 5 {
-			err := fmt.Errorf("error: Line %d has an incorrect amount of arguments, need 5, was given %d",
-				line_number,
-				len(records),
-			)
-
-            return nil, err
-        }
-
-        bets = append(bets, Bet{
-            Name:         record[0],
-            Surname:      record[1],
-            IdentityCard: record[2],
-            BirthDate:    record[3],
-            Number:       record[4],
-        })
+    if len(record) != ExpectedBetFields {
+        return nil, fmt.Errorf("error reading CSV line, it has %v fields, needs %v: %v",
+                len(record),
+                ExpectedBetFields,
+                err,
+            )
     }
 
-    return bets, nil
+    bet := &Bet{
+        Name:         record[0],
+        Surname:      record[1],
+        IdentityCard: record[2],
+        BirthDate:    record[3],
+        Number:       record[4],
+    }
+
+    return bet, nil
 }
